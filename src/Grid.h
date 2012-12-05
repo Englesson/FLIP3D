@@ -15,7 +15,7 @@ struct Grid
 	int Nx, Ny,Nz;
 	float h,overh, gravity, rho;
 
-	Array3f u,v,w,du,dv,dw; //Staggered u,v,w velocities
+	Array3f u,v,w,du,dv,dw,dtemp,t,s; //Staggered u,v,w velocities	
 	Array3c marker; //Voxel classification
 	Sparse_Matrix poisson; // The matrix for pressure stage
 	Sparse_Matrix precond; // The matrix for pressure stage
@@ -36,6 +36,9 @@ struct Grid
 		Nx = Nx_; Ny = Ny_; Nz = Nz_; h = h_; gravity = gravity_;
 		overh = 1.0f/h;
 		rho = rho_;
+		
+		s.init(Nx_,Ny_, Nz_);
+		t.init(Nx_,Ny_, Nz_);
 		u.init(Nx_+1,Ny_,Nz_);
 		v.init(Nx_,Ny_+1,Nz_);
 		w.init(Nx_,Ny_,Nz_+1);
@@ -50,6 +53,8 @@ struct Grid
 		cg.init(Nx_,Ny_,Nz_);
 		
 		//testMesh.init("untitled.obj", vec3f(0,0,0) ,h);
+
+
 	}
 
 	void zero()
@@ -60,10 +65,14 @@ struct Grid
 		du.zero();
 		dv.zero();
 		dw.zero();
+		
 		poisson.zero();
 		rhs.zero();
 		pressure.zero();
 		marker.zero();
+
+		t.zero();
+		s.zero();
 	}
 
 	void bary_x(float x, int &i, float &fx)
@@ -84,7 +93,7 @@ struct Grid
 			i=Nx-2; fx=1.0; 
 		}
 		else{ 
-			fx=sx-floor(sx); 
+			fx=sx-floor(sx);
 		}
 	}
 
@@ -186,22 +195,35 @@ struct Grid
 	}
 
 	void add_gravity(float dt)
-	{
+	{		
+		for(int k = 0; k < t.nz; ++k)
+			for(int j = 0; j < t.ny; ++j)
+				for(int i = 0; i < t.nx; ++i)
+				{
+					if(marker(i,j,k) != FLUIDCELL) {		
+						t(i,j,k) = TEMP_AMB;						
+					}
+				}
+		
 		float gdt = gravity*dt;
 		#pragma omp parallel for shared(gdt)
-		for(int k = 0; k < v.nz; ++k)
-			for(int j = 0; j < v.ny; ++j)
-				for(int i = 0; i < v.nx; ++i)
+		for(int k = 0; k < t.nz; ++k)
+			for(int j = 0; j < t.ny; ++j)
+				for(int i = 0; i < t.nx; ++i)
 				{
-					v(i,j,k) -= gdt;
+					if(marker(i,j,k) == FLUIDCELL) {						
+						float fb = (-0.5*1 + 0.1*(t(i,j,k)- TEMP_AMB))*dt;
+						v(i,j,k) += fb;
+					}
 				}
 
-// 		for (float * itr = v.data; itr < v.data + v.size; ++itr)
-// 			*itr -= gdt;
 	}
 
 	void classify_voxel()
 	{
+		
+
+
 		#pragma omp parallel for
 		for(int k = 0; k < Nz; ++k)
 			for(int j = 0; j < Ny; ++j)
@@ -357,10 +379,10 @@ void Grid::solve_pressure(int maxiterations, double tolerance)
 //----------------------------------------------------------------------------//	
 void Grid::project(float dt)
 {
-	float scale = dt / (rho * h);
+	float scale = dt / (h);
 	float val;
 
-	#pragma omp parallel for private(val) shared(scale)
+	//#pragma omp parallel for private(val) shared(scale)
 	for(int k = 0; k < Nz; ++k)
 		for(int j = 0; j < Ny; ++j)
 			for(int i = 0; i < Nx; ++i)
@@ -369,17 +391,44 @@ void Grid::project(float dt)
 				{
 					val = scale * float(pressure(i,j,k));
 
-					u(i,j,k) -= val;
-					u(i+1,j,k) += val;
+					float conc = 0.5*(s(i,j,k) + s(i-1,j,k));
+					float temp = 0.5*(t(i,j,k) + t(i-1,j,k));
+					float densAir = 1.01e5 / (287 * temp);
+					float densSmoke = densAir * ( 1.0f + 1.5*densAir); //1.5 is just a guess
 
-					v(i,j,k) -= val;
-					v(i,j+1,k) += val;
+					u(i,j,k) -= val*(1/densSmoke);
+					 conc = 0.5*(s(i,j,k) + s(i+1,j,k));
+					temp = 0.5*(t(i,j,k) + t(i+1,j,k));
+					densAir = 1.01e5 / (287 * temp);
+					densSmoke = densAir * ( 1.0f + 1.5*densAir); //1.5 is just a guess
 
-					w(i,j,k) -= val;
-					w(i,j,k+1) += val;
+					u(i+1,j,k) += val*(1/densSmoke);
 
-				}
-				/*
+				    conc = 0.5*(s(i,j,k) + s(i,j-1,k));
+					temp = 0.5*(t(i,j,k) + t(i,j-1,k));
+					densAir = 1.01e5 / (287 * temp);
+					densSmoke = densAir * ( 1.0f + 1.5*densAir); //1.5 is just a guess
+					v(i,j,k) -= val*(1/densSmoke);
+
+					conc = 0.5*(s(i,j,k) + s(i,j+1,k));
+					temp = 0.5*(t(i,j,k) + t(i,j+1,k));
+					densAir = 1.01e5 / (287 * temp);
+					densSmoke = densAir * ( 1.0f + 1.5*densAir); //1.5 is just a guess
+					v(i,j+1,k) += val*(1/densSmoke);
+
+					conc = 0.5*(s(i,j,k) + s(i,j,k-1));
+					temp = 0.5*(t(i,j,k) + t(i,j,k-1));
+					densAir = 1.01e5 / (287 * temp);
+					densSmoke = densAir * ( 1.0f + 1.5*densAir); //1.5 is just a guess
+					w(i,j,k) -= val*(1/densSmoke);
+
+					conc = 0.5*(s(i,j,k) + s(i,j,k+1));
+					temp = 0.5*(t(i,j,k) + t(i,j,k+1));
+					densAir = 1.01e5 / (287 * temp);
+					densSmoke = densAir * ( 1.0f + 1.5*densAir); //1.5 is just a guess
+					w(i,j,k+1) += val*(1/densSmoke);
+
+				}		
 				else if(marker(i,j,k) == SOLIDCELL)
 				{
 					u(i,j,k) = 0.0f;
@@ -390,8 +439,7 @@ void Grid::project(float dt)
  
 					w(i,j,k) = 0.0f;
 					w(i,j,k+1) = 0.0f;
-				}
-				*/
+				}				
 			}
 }
 
@@ -492,7 +540,7 @@ void Grid::calc_divergence()
 //----------------------------------------------------------------------------//
 void Grid::form_poisson(float dt)
 {
-	double scale = dt / (rho*h*h); // dt / (rho * dx^2) = (1/dx^2) * dt / rho
+	double scale = dt / (h*h); // dt / (rho * dx^2) = (1/dx^2) * dt / rho
 
 	#pragma omp parallel for shared(scale)
 	for(int k = 1; k < Nz-1; ++k)
@@ -501,31 +549,67 @@ void Grid::form_poisson(float dt)
 			{
 				if(marker(i,j,k) == FLUIDCELL)
 				{
-					if(marker(i-1,j,k) != SOLIDCELL)		//Cell(i-1,j,k) Is air or fluid
-						poisson(i,j,k,0) += scale; 
+					
+					if(marker(i-1,j,k) != SOLIDCELL) {		//Cell(i-1,j,k) Is air or fluid
+						float conc = 0.5*(s(i,j,k) + s(i-1,j,k));
+						float temp = 0.5*(t(i,j,k) + t(i-1,j,k));
+						float densAir = 1.01e5 / (287 * temp);
+						float densSmoke = densAir * ( 1.0f + 1.5*conc); //1.5 is just a guess
+						poisson(i,j,k,0) += scale*(1.0f/densSmoke); 
+
+					}
 					if(marker(i+1,j,k) != SOLIDCELL)		//Cell(i+1,j,k) Is air or fluid
 					{
-						poisson(i,j,k,0) += scale; 
+						float conc = 0.5*(s(i,j,k) + s(i+1,j,k));
+						float temp = 0.5*(t(i,j,k) + t(i+1,j,k));
+						float densAir = 1.01e5 / (287 * temp);
+						float densSmoke = densAir * ( 1.0f + 1.5*conc); //1.5 is just a guess
+
+						poisson(i,j,k,0) += scale*(1.0f/densSmoke); 
 						if(marker(i+1,j,k) == FLUIDCELL)	//Cell(i+1,j,k) Is fluid
-							poisson(i,j,k,1) -= scale; 
+							poisson(i,j,k,1) -= scale*(1.0f/densSmoke);
 					}
 
-					if(marker(i,j-1,k) != SOLIDCELL)		//Cell(i,j-1,k) Is air or fluid
-						poisson(i,j,k,0) += scale; 
+					if(marker(i,j-1,k) != SOLIDCELL) {		//Cell(i,j-1,k) Is air or fluid
+						float conc = 0.5*(s(i,j,k) + s(i,j-1,k));
+						float temp = 0.5*(t(i,j,k) + t(i,j-1,k));
+						float densAir = 1.01e5 / (287 * temp);
+						float densSmoke = densAir * ( 1.0f + 1.5*conc); //1.5 is just a guess
+					
+						poisson(i,j,k,0) += scale*(1.0f/densSmoke);
+
+					}
 					if(marker(i,j+1,k) != SOLIDCELL)		//Cell(i,j+1,k) Is air or fluid
 					{
-						poisson(i,j,k,0) += scale; 
+						float conc = 0.5*(s(i,j,k) + s(i,j+1,k));
+						float temp = 0.5*(t(i,j,k) + t(i,j+1,k));
+						float densAir = 1.01e5 / (287 * temp);
+						float densSmoke = densAir * ( 1.0f + 1.5*conc); //1.5 is just a guess
+
+						poisson(i,j,k,0) += scale*(1.0f/densSmoke);
 						if(marker(i,j+1,k) == FLUIDCELL)	//Cell(i,j+1,k) Is fluid
-							poisson(i,j,k,2) -= scale; 
+							poisson(i,j,k,2) -= scale*(1.0f/densSmoke);
 					}
 
-					if(marker(i,j,k-1) != SOLIDCELL)		//Cell(i,j,k-1) Is air or fluid
-						poisson(i,j,k,0) += scale; 
+					if(marker(i,j,k-1) != SOLIDCELL) {		//Cell(i,j,k-1) Is air or fluid
+						float conc = 0.5*(s(i,j,k) + s(i,j,k-1));
+						float temp = 0.5*(t(i,j,k) + t(i,j,k-1));
+						float densAir = 1.01e5 / (287 * temp);
+						float densSmoke = densAir * ( 1.0f + 1.5*conc); //1.5 is just a guess
+						
+						poisson(i,j,k,0) += scale*(1.0f/densSmoke);
+
+					}
 					if(marker(i,j,k+1) != SOLIDCELL)		//Cell(i,j,k+1) Is air or fluid
 					{
-						poisson(i,j,k,0) += scale; 
+						float conc = 0.5*(s(i,j,k) + s(i,j,k+1));
+						float temp = 0.5*(t(i,j,k) + t(i,j,k+1));
+						float densAir = 1.01e5 / (287 * temp);
+						float densSmoke = densAir * ( 1.0f + 1.5*conc); //1.5 is just a guess
+
+						poisson(i,j,k,0) += scale*(1.0f/densSmoke); 
 						if(marker(i,j,k+1) == FLUIDCELL)	//Cell(i,j,k+1) Is fluid
-							poisson(i,j,k,3) -= scale; 
+							poisson(i,j,k,3) -= scale*(1.0f/densSmoke); 
 					}					
 				} //End if CELL(i,j,k) == FLUIDCELL
 			}

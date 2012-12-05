@@ -12,9 +12,12 @@
 #include "Unconditioned_CG_Solver.h"
 
 #include "OpenGLViewer.h"
+#include "SolidMesh.h"
 
-#include "AniMesher.h"
+//#include "AniMesher.h"
 #include "MarchingCubes/MarchingCubes.h"
+
+SolidMesh testMesh, testMesh2;
 
 struct Fluid_Solver
 {
@@ -30,7 +33,7 @@ struct Fluid_Solver
 		grid.init(dimx,dimy,dimz,h,gravity, rho);
 		particles.init(max_particles,grid);
 		tri = new TRIANGLE[1];
-		
+		srand ( time(0) );
 	}
 
 	void reset();
@@ -39,6 +42,7 @@ struct Fluid_Solver
 	void step(float dt);
 
 	void init_box();
+	void drop_sphere(int r);
 
 
 	void createSurface();
@@ -56,7 +60,45 @@ void Fluid_Solver::createSurface()
 void Fluid_Solver::reset()
 {
 	particles.clear();
-	init_box();
+	drop_sphere(6);
+
+}
+
+
+void Fluid_Solver::drop_sphere(int r)
+{
+	
+	float r1,r2,r3,r4;
+	float subh = grid.h/2.0f;
+	vec3f pos(0);
+	r4 = 2.0*(float(rand()) / RAND_MAX - 0.5);
+	r4*=dimx;				
+	for(float k = 1; k < 31; ++k)
+		for(float j = 1; j < 31; ++j)
+			for(float i = 1; i <31; ++i) {
+				
+				int ci = i - dimx*0.5;// - r4;
+				int cj = j - r;
+				int ck = k - dimz*0.5;
+				float dist = sqrt(float(ci*ci + cj*cj + ck*ck));
+				if(dist < r) {
+				//Check if the voxel is inside the sphere
+				
+				for (int kk = -1; kk < 1; ++kk)
+					for(int jj = -1; jj < 1; ++jj)
+						for (int ii = -1; ii < 1; ++ii)
+						{
+							r1 = float(rand()) / RAND_MAX - 0.5; //[-0.5, 0.5]
+							r2 = float(rand()) / RAND_MAX - 0.5;
+							r3 = float(rand()) / RAND_MAX - 0.5;
+							pos[0] = (i+0.5f)*grid.h + (ii + 0.5f + 0.95*r1)*subh;
+							pos[1] = (j+0.5f)*grid.h + (jj + 0.5f + 0.95*r2)*subh;
+							pos[2] = (k+0.5f)*grid.h + (kk + 0.5f + 0.95*r3)*subh;
+							add_particle(particles,pos,vec3f(0.0f));
+						}
+				}
+
+			}
 
 }
 
@@ -66,10 +108,9 @@ void Fluid_Solver::init_box()
 	float r1,r2,r3;
 	float subh = grid.h/2.0f;
 	vec3f pos(0);
-	for(float k = 1; k < 20; ++k)
-		for(float j = 1; j < 40; ++j)
-			for(float i = 1; i < 20; ++i)
-			{
+	for(float k = 10; k < 20; ++k)
+		for(float j = 1; j < 11; ++j)
+			for(float i = 10; i < 20; ++i) {
 				for (int kk = -1; kk < 1; ++kk)
 					for(int jj = -1; jj < 1; ++jj)
 						for (int ii = -1; ii < 1; ++ii)
@@ -85,25 +126,65 @@ void Fluid_Solver::init_box()
 
 			}
 
-	for(float k = 43; k < 63; ++k)
-		for(float j = 1; j < 40; ++j)
-			for(float i = 79; i < 99; ++i)
-			{
-				for (int kk = -1; kk < 1; ++kk)
-					for(int jj = -1; jj < 1; ++jj)
-						for (int ii = -1; ii < 1; ++ii)
-						{
-							r1 = float(rand()) / RAND_MAX - 0.5; //[-0.5, 0.5]
-							r2 = float(rand()) / RAND_MAX - 0.5;
-							r3 = float(rand()) / RAND_MAX - 0.5;
-							pos[0] = (i+0.5f)*grid.h + (ii + 0.5f + 0.95*r1)*subh;
-							pos[1] = (j+0.5f)*grid.h + (jj + 0.5f + 0.95*r2)*subh;
-							pos[2] = (k+0.5f)*grid.h + (kk + 0.5f + 0.95*r3)*subh;
-							add_particle(particles,pos,vec3f(0.0f));
-						}
+			
 
-			}	
+// 			for(float k = 100; k < 200; ++k)
+// 				for(float j = 100; j < 300; ++j)
+// 					for(float i = 100; i < 200; ++i)
+// 					{
+// 						for (int kk = -1; kk < 1; ++kk)
+// 							for(int jj = -1; jj < 1; ++jj)
+// 								for (int ii = -1; ii < 1; ++ii)
+// 								{
+// 									r1 = float(rand()) / RAND_MAX - 0.5; //[-0.5, 0.5]
+// 									r2 = float(rand()) / RAND_MAX - 0.5;
+// 									r3 = float(rand()) / RAND_MAX - 0.5;
+// 									pos[0] = (i+0.5f)*grid.h + (ii + 0.5f + 0.95*r1)*subh;
+// 									pos[1] = (j+0.5f)*grid.h + (jj + 0.5f + 0.95*r2)*subh;
+// 									pos[2] = (k+0.5f)*grid.h + (kk + 0.5f + 0.95*r3)*subh;
+// 									add_particle(particles,pos,vec3f(0.0f));
+// 								}
+// 
+// 					}
 
+// 					for(float k = 1; k < 100; ++k)
+// 						for(float j = 21; j < 512; ++j)
+// 							for(float i = 1; i < 100; ++i)
+// 							{
+// 								for (int kk = -1; kk < 1; ++kk)
+// 									for(int jj = -1; jj < 1; ++jj)
+// 										for (int ii = -1; ii < 1; ++ii)
+// 										{
+// 											r1 = float(rand()) / RAND_MAX - 0.5; //[-0.5, 0.5]
+// 											r2 = float(rand()) / RAND_MAX - 0.5;
+// 											r3 = float(rand()) / RAND_MAX - 0.5;
+// 											pos[0] = (i+0.5f)*grid.h + (ii + 0.5f + 0.95*r1)*subh;
+// 											pos[1] = (j+0.5f)*grid.h + (jj + 0.5f + 0.95*r2)*subh;
+// 											pos[2] = (k+0.5f)*grid.h + (kk + 0.5f + 0.95*r3)*subh;
+// 											add_particle(particles,pos,vec3f(0.0f));
+// 										}
+// 
+// 							}
+
+
+// 			for(float k = 20; k < 30; ++k)
+// 				for(float j = 10; j < 30; ++j)
+// 					for(float i = 20; i < 30; ++i)
+// 					{
+// 						for (int kk = -1; kk < 1; ++kk)
+// 							for(int jj = -1; jj < 1; ++jj)
+// 								for (int ii = -1; ii < 1; ++ii)
+// 								{
+// 									r1 = float(rand()) / RAND_MAX - 0.5; //[-0.5, 0.5]
+// 									r2 = float(rand()) / RAND_MAX - 0.5;
+// 									r3 = float(rand()) / RAND_MAX - 0.5;
+// 									pos[0] = (i+0.5f)*grid.h + (ii + 0.5f + 0.95*r1)*subh;
+// 									pos[1] = (j+0.5f)*grid.h + (jj + 0.5f + 0.95*r2)*subh;
+// 									pos[2] = (k+0.5f)*grid.h + (kk + 0.5f + 0.95*r3)*subh;
+// 									add_particle(particles,pos,vec3f(0.0f));
+// 								}
+// 
+// 					}
 }
 
 void Fluid_Solver::step_frame()
@@ -127,38 +208,44 @@ void Fluid_Solver::step_frame()
 void Fluid_Solver::step(float dt)
 {
 
-
-
 	//grid.extend_velocity();
 	for (int i = 0; i < 5; i++)
 		move_particles_in_grid(particles,grid,0.2*dt);
 
 	grid.zero();
 
-
 	grid.classify_voxel();
 
 	#ifdef SOLIDS
-		testMesh.move(dt);
+		//testMesh.move(dt);
 		//testMesh2.move(dt);
 	#endif
 
 #ifdef SOLIDS
-	testMesh.mesh_to_grid(grid);
-	//testMesh2.mesh_to_grid(grid);
+	//testMesh.mesh_to_grid(grid);
+	testMesh2.mesh_to_grid(grid);
 #endif
 
 	transfer_to_grid(particles,grid);
 
+
 #ifdef SOLIDS
-	testMesh.mesh_to_grid(grid);
-	//testMesh2.mesh_to_grid(grid);
+	//testMesh.mesh_to_grid(grid);
+	testMesh2.mesh_to_grid(grid);
 #endif
 
 	grid.save_velocities();
-	grid.add_gravity(dt);
+	//grid.add_gravity(dt);
+	
 
 	grid.apply_boundary_conditions();
+
+
+	//THIS IS CHEATING
+
+
+
+	addFbouy(particles,grid,dt);
 
 	//Pressure
 	grid.form_poisson(dt); 

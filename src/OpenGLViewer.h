@@ -26,10 +26,9 @@
 #include "Vector3.h"
 #include "Grid.h"
 #include "SolidMesh.h"
+#include "Fluid_Solver.h"
 
-
-
-#include "AniMesher.h"
+//#include "AniMesher.h"
 
 
 
@@ -62,7 +61,8 @@ GLfloat edge = 3.0f;
 bool step = false, reset = false, showgrid = false, play = false;
 bool up_is_down;
 bool down_is_down;
-SolidMesh testMesh, testMesh2;
+bool dropSphere;
+
 
 bool isokeyleft = false, isokeyright = false;
 
@@ -162,7 +162,7 @@ float getFPS(void)
 //----------------------------------------------------------------------------//
 // Display fps, winh, winw, zoom and title
 //----------------------------------------------------------------------------//
-void showFPS(int winw, int winh, float zoom) {
+void showFPS(int winw, int winh, float zoom, int nP) {
 
 	static char titlestr[200];
 	double t, fps;
@@ -171,9 +171,10 @@ void showFPS(int winw, int winh, float zoom) {
 	// If one second has passed, or if this is the very first frame
 	if( (t - t0) > 1.0 || frames == 0 )
 	{
+		
 		fps = (double)frames / (t - t0);
-		sprintf(titlestr, "FLIP3D, %dx%d pixels, %.1fx zoom, %.1f FPS -> %.1f Mpixels/s",
-			winw, winh, zoom, fps, winw*winh*fps*1e-6);
+		sprintf(titlestr, "FLIP3D, Particles: %d %dx%d pixels, %.1fx zoom, %.1f FPS -> %.1f Mpixels/s",
+			nP,winw, winh, zoom, fps, winw*winh*fps*1e-6);
 		glfwSetWindowTitle(titlestr);
 		t0 = t;
 		frames = 0;
@@ -399,7 +400,7 @@ void DrawParticles()
 	if(down_is_down)
 		edge -= 0.025;
 	glUniform1fv(particle_edgeLocation,1,&edge);
-	glPointSize(4.0);
+	glPointSize(3.0);
 	glDrawArrays(GL_POINTS,0,nrOfParticles);
 
 	glBindVertexArray(0);
@@ -429,8 +430,8 @@ void DrawSolidVoxels()
 	glUniformMatrix4fv(solid_ProjectionMtxLocation, 1, GL_FALSE, transformPipeline.GetProjectionMatrix());
 	glPointSize(0.1);
 
-	testMesh.draw();
-	//testMesh2.draw();
+	//testMesh.draw();
+	testMesh2.draw();
 }
 
 void DrawMesh()
@@ -467,14 +468,15 @@ void DrawMesh()
 // Draws all content
 //----------------------------------------------------------------------------//
 
-void OpenGl_drawAndUpdate(bool &running)
+void OpenGl_drawAndUpdate(bool &running, Fluid_Solver * solver = 0)
 {
+	/*
 	if(isokeyleft)
 	{
 		if(glfwGetKey(GLFW_KEY_LSHIFT) == GLFW_PRESS)
 		{
 			if(glfwGetKey(GLFW_KEY_LCTRL) == GLFW_PRESS)
-				isovalue -= 0.01;
+				isovalue -= 10;
 			else
 				--isovalue;
 		}
@@ -487,7 +489,7 @@ void OpenGl_drawAndUpdate(bool &running)
 		if(glfwGetKey(GLFW_KEY_LSHIFT) == GLFW_PRESS)
 		{
 			if(glfwGetKey(GLFW_KEY_LCTRL) == GLFW_PRESS)
-				isovalue += 0.01;
+				isovalue += 10;
 			else
 				++isovalue;
 
@@ -497,7 +499,7 @@ void OpenGl_drawAndUpdate(bool &running)
 		std::cout << "iso: " << isovalue << "\n";
 	}
 
-
+	*/
 
 	//glEnable(GL_CULL_FACE);
 	glDepthFunc(GL_LESS);
@@ -509,7 +511,7 @@ void OpenGl_drawAndUpdate(bool &running)
 	if(!running)
 		return;
 
-	showFPS(winw, winh, zoom);
+	showFPS(winw, winh, zoom, solver->particles.currnp);
 	Resize(); //Update viewport and projection matrix
 
 	//Clear the buffer color and depth
@@ -528,14 +530,16 @@ void OpenGl_drawAndUpdate(bool &running)
 	modelViewMatrix.Translate(posDx,posDy,zoom);
 	modelViewMatrix.Rotate(-rotDx,1.0f,0.0f,0.0f);
 	modelViewMatrix.Rotate(-rotDy,0.0f,1.0f,0.0f);
-	modelViewMatrix.Translate(-Nx*0.5f*h,-Ny*0.5f*h,-Nz*0.5f*h);
+	modelViewMatrix.Translate(-Nx*0.5f*h,-Ny*0.5f*h,-150.0);
 
 	
 #ifdef SOLIDS
 	DrawSolidVoxels();
 #endif
-
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+   glEnable( GL_BLEND );
 	DrawParticles();
+
 	DrawMesh();
 	
 
@@ -556,6 +560,11 @@ void OpenGl_drawAndUpdate(bool &running)
 //----------------------------------------------------------------------------//
 void GLFWCALL KeyboardFunc( int key, int action )
 {
+	if(key == 'D') {
+		dropSphere = true;
+	}
+
+
 	if(key == 'P')
 	{
 		if(action == GLFW_PRESS)
@@ -602,7 +611,7 @@ void GLFWCALL KeyboardFunc( int key, int action )
 	if(key == GLFW_KEY_DOWN  && action == GLFW_RELEASE)
 		down_is_down = false;
 
-
+	/*
 	// CHANGE ISOVALUE IN ANIMESHER
 	if(key == GLFW_KEY_RIGHT && action == GLFW_PRESS)
 	{
@@ -631,7 +640,6 @@ void GLFWCALL KeyboardFunc( int key, int action )
 	kspecial = 0.8;	//(1-kn) -> Hur mycket i procent får egenvärdena skilja sig i axlarna.
 	kn = 1.0;
 	H = 0.5;
-	*/
 
 	if(key == 'B' && action == GLFW_PRESS)
 	{	
@@ -646,24 +654,25 @@ void GLFWCALL KeyboardFunc( int key, int action )
 	if(key == 'M' && action == GLFW_PRESS)
 	{	
 		if(glfwGetKey(GLFW_KEY_LSHIFT) == GLFW_PRESS)
-			ks += 100;
+			amp += 0.1;
 		else
-			ks -= 100;
+			amp -= 0.1;
 
-		std::cout << "ks = " << ks << "\n";
+		std::cout << "amp = " << amp << "\n";
 	}
 
 	if(key == 'V' && action == GLFW_PRESS)
 	{	
 		if(glfwGetKey(GLFW_KEY_LSHIFT) == GLFW_PRESS)
-			H += 0.01;
+			H += 0.1;
 		else
-			H -= 0.01;
+			H -= 0.1;
 
 		std::cout << "H = " << H << "\n";
 	}
-
-	/*if(key == 'N' && action == GLFW_PRESS)
+	
+	
+	if(key == 'N' && action == GLFW_PRESS)
 	{	
 		if(glfwGetKey(GLFW_KEY_LSHIFT) == GLFW_PRESS)
 			kn += 0.1;
@@ -681,7 +690,7 @@ void GLFWCALL KeyboardFunc( int key, int action )
 			kn -= 0.1;
 
 		std::cout << "kn = " << kn << "\n";
-	}*/
+	}
 
 	if(key == 'K' && action == GLFW_PRESS)
 	{	
@@ -690,7 +699,7 @@ void GLFWCALL KeyboardFunc( int key, int action )
 		else
 			kspecial -= 0.1;
 
-		//std::cout << "kspecial = " << kspecial << "\n";
+		std::cout << "kspecial = " << kspecial << "\n";
 	}
 
 
@@ -700,11 +709,11 @@ void GLFWCALL KeyboardFunc( int key, int action )
 		std::cout << "H = " << H << ": key \'V\'\n";
 		//std::cout << "kn = " << kn << ": key \'N\'\n";
 		std::cout << "kr = " << kr << ": key \'B\'\n";
-		std::cout << "ks = " << ks  << ": key \'M\'\n";
-		//std::cout << "kspecial = " << kspecial <<  ": key \'K\'\n";
+		std::cout << "amp = " << amp  << ": key \'B\'\n";
+		std::cout << "kspecial = " << kspecial <<  ": key \'K\'\n";
 	}
 
-
+	*/
 
 	
 
@@ -802,12 +811,12 @@ void OpenGl_initViewer(int width_, int height_, const int dimx_, const int dimy_
 	
 
 	//Move the camera back 5 units
-	cameraFrame.SetOrigin(0.0f,0.0f,10.0);
+	cameraFrame.SetOrigin(0.0f,0.0f,30.0);
 
 #ifdef SOLIDS
 	//testMesh.init("cube10.obj", vec3f(35,-1,33),vec3f(0.0.0f,20.0f,0.0f) , h);
-	testMesh.init("cube10.obj", vec3f(15,-10,15),vec3f(0.0f,1.0f,0.0f) , h);
-	//testMesh2.init("cube10.obj", vec3f(0,-1,9), vec3f(0.0f) , h);
+	//testMesh.init("cube10.obj", vec3f(15,-10,15),vec3f(0.0f,1.0f,0.0f) , h);
+	testMesh2.init("cube10.obj", vec3f(8,40,21), vec3f(0.0f) , h);
 #endif
 
 }

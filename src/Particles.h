@@ -6,6 +6,9 @@
 #include <fstream>
 #include <vector>
 
+
+#include "config.h"
+
 #include "Vector3.h"
 #include "Grid.h"
 #include "Array3D.h"
@@ -20,7 +23,8 @@ struct Particles
 	//vec3f *vel, *pos;
 
 	std::vector<vec3f> vel, pos;
-	Array3f weightsumx,weightsumy,weightsumz;
+	std::vector<float> temp,density;
+	Array3f weightsumx,weightsumy,weightsumz,tempsum;
 
 	Particles() {}
 
@@ -40,6 +44,7 @@ struct Particles
 		weightsumx.init(grid.u.nx, grid.u.ny, grid.u.nz);
 		weightsumy.init(grid.v.nx, grid.v.ny, grid.v.nz);
 		weightsumz.init(grid.w.nx, grid.w.ny, grid.w.nz);
+		tempsum.init(grid.w.nx, grid.w.ny, grid.w.nz);
 	}
 
 	~Particles() 
@@ -55,6 +60,9 @@ struct Particles
 		pos.clear();
 		vel.clear();
 		currnp = 0;
+
+		//temp.clear();
+		//density.clear();
 	}
 
 	void
@@ -66,6 +74,7 @@ struct Particles
 		std::swap(pos[i],pos.back());
 		vel.pop_back();
 		pos.pop_back();
+		temp.pop_back();
 		currnp = vel.size();
 		//std::cout << "REMOVED PARTICLE " << i << "\n";
 	}
@@ -88,7 +97,7 @@ void move_particles_in_grid(Particles & particles, Grid & grid, float dt)
 #endif
 
 #pragma omp parallel for private(ufx, fx, vfy, fy, wfz, fz,ui, i, vj, j, wk, k,vel) shared(xmax,ymax,zmax)
-	for(int p = 0; p < particles.pos.size(); p++)
+	for(int p = 0; p < particles.pos.size(); p++) //MUST LOOP OVER CURRNP
 	{
 		//Trilerp from grid
 		grid.bary_x(particles.pos[p][0], ui, ufx);
@@ -224,49 +233,67 @@ void update_from_grid(Particles & particles, Grid & grid)
 		//Flip
 		//particles.vel[p] += vec3f(grid.du.trilerp(ui,j,k,ufx,fy,fz), grid.dv.trilerp(i,vj,k,fx,vfy,fz), grid.dw.trilerp(i,j,wk,fx,fy,wfz));
 		
+
+
+
 		//PIC/FLIP
-		float alpha = 0.05f;
+		/*
+		float temperature = grid.t.trilerp(i,vj,k,fx,vfy,fz);
+		particles.temp[p] = temperature;
+		
+		float density = grid.s.trilerp(i,vj,k,fx,vfy,fz);
+		particles.density[p] = density;
+		*/
+		float alpha = 0.05;
 		particles.vel[p] =  alpha*vec3f(grid.u.trilerp(ui,j,k,ufx,fy,fz), grid.v.trilerp(i,vj,k,fx,vfy,fz), grid.w.trilerp(i,j,wk,fx,fy,wfz))
 			+ (1.0f - alpha)*(particles.vel[p] + vec3f(grid.du.trilerp(ui,j,k,ufx,fy,fz), grid.dv.trilerp(i,vj,k,fx,vfy,fz), grid.dw.trilerp(i,j,wk,fx,fy,wfz)));
 
 	}
 }
 
-void accumulate(Array3f &macvel,Array3f &sum, float & pvel, int i, int j, int k, float fx, float fy, float fz)
+void accumulate(Array3f &macvel,Array3f &sum, float & pvel, int i, int j, int k, float fx, float fy, float fz, bool accum = true)
 {
 	float weight = 0;
 
 	weight = (1-fx)*(1-fy)*(1-fz);
 	macvel(i,j,k) += weight*pvel;
-	sum(i,j,k) += weight;
+	if(accum)
+		sum(i,j,k) += weight;
 
 	weight = fx*(1-fy)*(1-fz);
 	macvel(i+1,j,k) += weight*pvel;
-	sum(i+1,j,k) += weight;
+	if(accum)
+		sum(i+1,j,k) += weight;
 
 	weight = (1-fx)*fy*(1-fz);
 	macvel(i,j+1,k) += weight*pvel;
-	sum(i,j+1,k) += weight;
+	if(accum)
+		sum(i,j+1,k) += weight;
 
 	weight = fx*fy*(1-fz);
 	macvel(i+1,j+1,k) += weight*pvel;
-	sum(i+1,j+1,k) += weight;
+	if(accum)
+		sum(i+1,j+1,k) += weight;
 
 	weight = (1-fx)*(1-fy)*fz;
 	macvel(i,j,k+1) += weight*pvel;
-	sum(i,j,k+1) += weight;
+	if(accum)
+		sum(i,j,k+1) += weight;
 
 	weight = fx*(1-fy)*fz;
 	macvel(i+1,j,k+1) += weight*pvel;
-	sum(i+1,j,k+1) += weight;
+	if(accum)
+		sum(i+1,j,k+1) += weight;
 
 	weight = (1-fx)*fy*fz;
 	macvel(i,j+1,k+1) += weight*pvel;
-	sum(i,j+1,k+1) += weight;
+	if(accum)
+		sum(i,j+1,k+1) += weight;
 
 	weight = fx*fy*fz;
 	macvel(i+1,j+1,k+1) += weight*pvel;
-	sum(i+1,j+1,k+1) += weight;
+	if(accum)
+		sum(i+1,j+1,k+1) += weight;
 }
 
 void transfer_to_grid(Particles & particles, Grid & grid)
@@ -278,6 +305,8 @@ void transfer_to_grid(Particles & particles, Grid & grid)
 	particles.weightsumx.zero();
 	particles.weightsumy.zero();
 	particles.weightsumz.zero();
+	particles.tempsum.zero();
+
 
 #if NDEBUG
 	std::vector< std::vector<int> > removeIndices;
@@ -286,12 +315,16 @@ void transfer_to_grid(Particles & particles, Grid & grid)
 	std::vector< int > removeIndices;
 #endif
 
-#pragma omp parallel for private(ui, vj, wk,i,j,k,fx, ufx, fy, vfy, fz, wfz,tmpi, tmpj, tmpk)
-	for (int p = 0; p < particles.pos.size(); ++p) //Loop over all particles
+//#pragma omp parallel for private(ui, vj, wk,i,j,k,fx, ufx, fy, vfy, fz, wfz,tmpi, tmpj, tmpk)
+	for (int p = 0; p < particles.pos.size(); ++p) //Loop over all particles //MUST LOOP OVER CURRNP
 	{
 		grid.bary_x(particles.pos[p][0],ui,ufx); tmpi = ui;
 		grid.bary_y(particles.pos[p][1],vj,vfy); tmpj = vj;
 		grid.bary_z(particles.pos[p][2],wk,wfz); tmpk = wk;
+
+		grid.bary_y_centre(particles.pos[p][1],j,fy);
+		grid.bary_z_centre(particles.pos[p][2],k,fz);
+		grid.bary_x_centre(particles.pos[p][0],i,fx);
 
 		if(grid.marker(ui,vj,wk) == SOLIDCELL)
 		{
@@ -307,27 +340,17 @@ void transfer_to_grid(Particles & particles, Grid & grid)
 			grid.marker(ui,vj,wk) = FLUIDCELL;
 		
 
-		grid.bary_y_centre(particles.pos[p][1],j,fy);
-		grid.bary_z_centre(particles.pos[p][2],k,fz);
+		
 		accumulate(grid.u,particles.weightsumx,particles.vel[p][0],ui,j,k,ufx,fy,fz);
-
-
-		grid.bary_x_centre(particles.pos[p][0],i,fx);
-		grid.bary_z_centre(particles.pos[p][2],k,fz);
 		accumulate(grid.v,particles.weightsumy,particles.vel[p][1],i,vj,k,fx,vfy,fz);
-
-
-		grid.bary_x_centre(particles.pos[p][0],i,fx);
-		grid.bary_y_centre(particles.pos[p][1],j,fy);
 		accumulate(grid.w,particles.weightsumz,particles.vel[p][2],i,j,wk,fx,fy,wfz);
 
-		
+		//splat to center
+		accumulate(grid.t,particles.tempsum,particles.temp[p],i,j,k,fx,fy,fz);
+		accumulate(grid.s,particles.tempsum,particles.density[p],i,j,k,fx,fy,fz,false);
 
-		//mp4Vector val(tmpi,tmpj,tmpk,-1.0);
-		//levelset[(i + grid.Nx*(j + grid.Ny*k))] = val;
 
 	}
-
 
 
 #if NDEBUG
@@ -344,8 +367,6 @@ void transfer_to_grid(Particles & particles, Grid & grid)
 		particles.remove(removeIndices[j]);
 	}
 #endif
-
-
 
 	//Scale u velocities with weightsumx
 
@@ -364,6 +385,29 @@ void transfer_to_grid(Particles & particles, Grid & grid)
 			grid.v.data[i] /= particles.weightsumy.data[i];
 	}
 
+	//Scale temp with weightsumy
+	#pragma omp parallel for
+	for (int i = 0; i < grid.t.size; i++)
+	{
+		if(grid.t.data[i] != 0) {
+			float res = grid.t.data[i] / particles.tempsum.data[i];
+			grid.t.data[i] /= particles.tempsum.data[i];
+		} else {
+			grid.t.data[i] = TEMP_AMB;
+		}
+	}
+
+
+	//scale concentration
+	#pragma omp parallel for
+	for (int i = 0; i < grid.s.size; i++)
+	{
+		if(grid.s.data[i] != 0)
+		{
+			grid.s.data[i] /= particles.tempsum.data[i];
+		}
+	}
+
 	//Scale w velocities with weightsumz
 	#pragma omp parallel for
 	for (int i = 0; i < grid.w.size; i++)
@@ -371,7 +415,6 @@ void transfer_to_grid(Particles & particles, Grid & grid)
 		if(grid.w.data[i] != 0)
 			grid.w.data[i] /= particles.weightsumz.data[i];
 	}
-
 }
 
 //----------------------------------------------------------------------------//
@@ -383,6 +426,8 @@ inline void add_particle(Particles & particles, vec3f & pos, vec3f  & vel)
 	//particles.vel[particles.currnp] = vel;
 	particles.pos.push_back(pos);
 	particles.vel.push_back(vel);
+	particles.temp.push_back(TEMP);
+	particles.density.push_back(DENSITY);
 	++particles.currnp;
 }
 
@@ -426,6 +471,50 @@ void read_paricle_pos_binary(Particles & particles, int frame)
 	fread((void *) (&particles.pos[0]),sizeof(vec3f),particles.pos.size(),file);
 
 	fclose(file);
+}
+
+void addFbouy(Particles & particles, Grid & grid,float dt)
+{
+	int nx = grid.v.nx;
+	int ny = grid.v.ny;
+	int nz = grid.v.nz;
+		
+#pragma omp parallel for
+	for(int k = 0; k < nz; ++k)
+		for(int j = 0; j < ny-1; ++j) //-1? or not? MAC vs normal..?
+			for(int i = 0; i < nx; ++i)
+			{
+				if(grid.marker(i,j,k) == FLUIDCELL) {	
+					//float beta = 1.0f/TEMP_AMB;
+					float tempAvg = 0.5*(grid.t(i,j-1,k) + grid.t(i,j,k));
+					float conAvg = 0.5*(grid.s(i,j-1,k) + grid.s(i,j,k));
+					/*
+					if(grid.s(i,j,k) < 0.01)
+					{
+						float a = 0;
+					}
+					if(grid.t(i,j,k) < 273.9)
+					{
+						float b = 0.0;
+					}
+					*/
+					
+					//float fb = 50*conAvg*dt; //Only concentration
+					//float fb = 0.5*(tempAvg - TEMP_AMB)*dt; //Only temperature
+					float fb = 0.5*(-25.0*conAvg + 0.9*(tempAvg - TEMP_AMB))*dt; //Both temperature and concentration
+					grid.v(i,j,k) += fb;
+				}
+			}
+
+			float d = -0.1;
+			#pragma omp parallel for
+			for(int i=0;i<particles.pos.size();++i)
+			{
+				particles.density[i] *= exp(d*dt);
+				particles.temp[i] *= exp(0.2*d*dt);
+			}
+
+
 }
 
 #endif

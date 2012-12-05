@@ -8,5 +8,5 @@ uniform float edge;
 void main(void)
 {
 	//Do velocity based shading here
-	fragColor = mix(vec4(0.25f,0.25f,1.0f,1.0f),vec4(1.0f),smoothstep(0.0f,edge,length(color)));
+	fragColor = vec4(vec3(0.0f),0.1);//mix(vec4(0.25f,0.25f,1.0f,1.0f),vec4(1.0f),smoothstep(0.0f,edge,length(color)));
 }

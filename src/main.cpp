@@ -13,19 +13,13 @@
 #include "hr_time.h"
 #include "Sparse_Matrix.h"
 #include "Fluid_Solver.h"
-#include "Unconditioned_CG_Solver.h"
+
 
 #include "ObjLoader.h"
 
 #include "MarchingCubes/MarchingCubes.h"
 
-
-
-const int perCell = 8;
-const int box = 10;
-const int Nparticles = 30000*perCell;
-const int dimx = 100, dimy = 78, dimz = 64;
-const float gridh = 0.1;
+#include "config.h"
 
 void initVoxels(float * voxelPositions, int dx, int dy, int dz)
 {
@@ -53,11 +47,17 @@ void update_voxel_flags(Grid & grid, Array3f & flags)
 			}
 }
 
+//CStopWatch stopwatch;
+
+int numframes;
+double avgtime = 24;
+
 void
 runFluidSim()
 {
 	Fluid_Solver fluid_solver(dimx,dimy,dimz,gridh,1.0f/30.0f,9.82f,1.0f,Nparticles);
-	fluid_solver.init_box();
+	fluid_solver.drop_sphere(6);
+	//fluid_solver.init_box();
 
 	OpenGl_initViewer(600, 600, dimx, dimy, dimz, gridh);
 	OpenGl_initParticles(&fluid_solver.particles.pos[0], &fluid_solver.particles.vel[0], sizeof(vec3f)*fluid_solver.particles.currnp, fluid_solver.particles.currnp);	
@@ -69,10 +69,9 @@ runFluidSim()
 
 	OpenGl_initWireframeCube(voxelPositions,voxelFlags.data,Nvoxels);
 	update_voxel_flags(fluid_solver.grid,voxelFlags);
-
+	CStopWatch stopwatch;
 	
 	while(running) {
-
 		
 		if(reset)
 			fluid_solver.reset();
@@ -84,21 +83,26 @@ runFluidSim()
 			OpenGl_updateVoxels(voxelPositions, voxelFlags, Nvoxels);
 		}
 
-		OpenGl_drawAndUpdate(running);
-
+		OpenGl_drawAndUpdate(running, &fluid_solver);
+		
 		if(step || play)
 		{
-			
-//			stopwatch.startTimer();
+			if(dropSphere) {
+				fluid_solver.drop_sphere(5);
+				dropSphere = false;
+			}
 			fluid_solver.step_frame();
-// 			stopwatch.stopTimer();
-// 			std::cout << std::scientific;
-// 			std::cout << stopwatch.getElapsedTime() << "\n";
-// 			if(numframes >= 6)
-// 				avgtime += stopwatch.getElapsedTime();
-// 			numframes++;
+			/*stopwatch.startTimer();
 			
-			write_paricle_pos_binary(fluid_solver.particles);
+			stopwatch.stopTimer();
+			//std::cout << std::scientific;
+			///std::cout << stopwatch.getElapsedTime() << "\n";
+			if(numframes <= 100)
+				avgtime += stopwatch.getElapsedTime();
+			numframes++;
+			*/
+			
+			//write_paricle_pos_binary(fluid_solver.particles);
 
 			//fluid_solver.createSurface();
 			//openGl_setMesh(fluid_solver.tri,fluid_solver.nrofTriangles);
@@ -109,12 +113,13 @@ runFluidSim()
 	
 
 	TerminateViewer();
-// 	std::cout << std::scientific;
-// 	std::cout << "Avg. time" << avgtime/(numframes-6) << "\n";
-// 	std::cout << "Press any key to quit...\n";
-//	std::cin.get();
+	/*std::cout << std::scientific;
+	std::cout << "Avg. time" << avgtime/(numframes-6) << "\n";
+	std::cout << "Total. time" << avgtime << "\n";
+	std::cout << "Press any key to quit...\n";
+	std::cin.get();
+	*/
 }
-
 
 struct IFL
 {
@@ -196,24 +201,16 @@ struct IFL
 };
 
 void
-writeObj(TRIANGLE * tri, int & ntriangles, int frameNr)
+writeObj(TRIANGLE * tri, int & ntriangles)
 {
+	
+
 	IFL ifl;
 	ifl.init(tri,ntriangles);
 
 
 	std::ofstream file;
-	std::stringstream ss;
-	ss << "objs/mesh_" << frameNr << ".obj";
-	std::string filename;
-	ss >> filename;
-	file.open (filename);
-
-	if(!file)
-	{
-		std::cout << "coult not open: " << filename << "\n";
-		std::cin.get();
-	}
+	file.open ("mesh.obj");
 
 	//Print points
 	for(int i = 0; i < ifl.vecs.size(); ++i)
@@ -224,14 +221,14 @@ writeObj(TRIANGLE * tri, int & ntriangles, int frameNr)
 	file << "\n";
 
 	//Print normals
-	/*for(int i = 0; i < ifl.vecs.size(); ++i)
+	for(int i = 0; i < ifl.vecs.size(); ++i)
 	{
 		file << "vn " << ifl.normals[i].norm[0] << ' ' << ifl.normals[i].norm[1] << ' ' << ifl.normals[i].norm[2] << "\n";
 		
 	}
 	
 	file << "\n";
-	
+
 	//print vecs
 	for(int i = 0; i < ifl.tris.size(); ++i)
 	{
@@ -240,18 +237,12 @@ writeObj(TRIANGLE * tri, int & ntriangles, int frameNr)
 		file << ifl.tris[i].j+1 << "\\\\" << ifl.tris[i].j+1 << ' ';
 		file << ifl.tris[i].k+1 << "\\\\" << ifl.tris[i].k+1 << ' ';
 		file << "\n";
-	}*/
-	for(int i = 0; i < ifl.tris.size(); ++i)
-	{
-		file << "f ";
-		file << ifl.tris[i].i+1 << ' ';
-		file << ifl.tris[i].j+1 << ' ';
-		file << ifl.tris[i].k+1;
-		file << "\n";
 	}
-	file.close();
-}
 
+	file.close();
+	std::cin.get();
+}
+/*
 void
 runSurfaceReconstruction(int frame)
 {
@@ -273,7 +264,7 @@ runSurfaceReconstruction(int frame)
 		if(reset)
 		{
 			std::cout << "setting changed: press \'s\' to genereate surface \n";
-			calcmesh = true;
+		calcmesh = true;
 		}
 		reset = false;
 
@@ -281,52 +272,21 @@ runSurfaceReconstruction(int frame)
 
 		if(step || play)
 		{
-			mesh(particles,dimx, dimy, dimz, gridh, 1, nrofTriangles, tri);
+			mesh(particles,dimx, dimy, dimz, gridh, 2, nrofTriangles, tri);
 			openGl_setMesh(tri, nrofTriangles);
 		}
 	}
 	
-	writeObj(tri,nrofTriangles, frame);
+	writeObj(tri,nrofTriangles);
 	TerminateViewer();
 
 }
-
-void
-runManySurfaceReconstructions(int frame_begin, int frame_end)
-{
-	Particles particles;
-	TRIANGLE * tri;
-	int nrofTriangles;
-
-	tri = new TRIANGLE[1];
-
-	for(int currFrame = frame_begin; currFrame <= frame_end; ++currFrame)
-	{
-		read_paricle_pos_binary(particles, currFrame);
-
-		//if(reset)
-		//{
-			std::cout << "setting changed: press \'s\' to genereate surface \n";
-			calcmesh = true;
-		//}
-		reset = false;
-
-		//if(step || play)
-		//{
-			mesh(particles,dimx, dimy, dimz, gridh, 1, nrofTriangles, tri);
-		//}
-		writeObj(tri,nrofTriangles, currFrame);
-		std::cout << "Wrote frame: " << currFrame << "\n\n\n";
-	}
-	
-}
-
+*/
 int main(void)
 {
-	//runFluidSim();
+	runFluidSim();
 	
-	//runSurfaceReconstruction(30); //Read specific frame
-	runManySurfaceReconstructions(0, 413);
+	//runSurfaceReconstruction(16); //Read specific frame
 	
 	return 0;
 }
